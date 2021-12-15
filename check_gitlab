@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+# (c) JRM 2019
+#
+NAGIOS_OK=0
+NAGIOS_WARNING=1
+NAGIOS_CRITICAL=2
+NAGIOS_UNKNOWN=3
+
+NAGIOS_STATUS="" 
+NAGIOS_EXIT=$NAGIOS_OK
+
+help (){
+        echo "$0 [-h|-r|-l] servername " 
+        echo "  -h      health status" 
+        echo "  -r      readliness status (services preparados)" 
+        echo "  -l      liveliness status (services vitalidad)" 
+}
+
+if [ $# -ne 2 ] 
+then
+        help
+        NAGIOS_EXIT=$NAGIOS_UNKNOWN
+        NAGIOS_STATUS="HELP Needed" 
+else
+        MONITOR=$1
+        SERVER=$2
+        case "$MONITOR" in
+        "-h")
+                STATUS_TEXT=$( curl -s $SERVER/-/health )
+                STATUS_VALUE=$?
+                if [ $STATUS_VALUE != 0 ]
+                then
+                        NAGIOS_EXIT=$NAGIOS_UNKNOWN
+                        NAGIOS_STATUS="Error. Network Connection." 
+                else
+                        NAGIOS_STATUS=$STATUS_TEXT
+                        if [ "$STATUS_TEXT" = "Gitlab OK" ]
+                        then
+                                NAGIOS_EXIT=$NAGIOS_OK
+                        else
+                                NAGIOS_EXIT=$NAGIOS_ERROR
+                        fi
+                fi
+                ;;
+        "-r")
+                STATUS_TEXT=$( curl -s $SERVER/-/readiness )
+                STATUS_VALUE=$?
+                if [ $STATUS_VALUE != 0 ]
+                then
+                        NAGIOS_EXIT=$NAGIOS_UNKNOWN
+                        NAGIOS_STATUS="Error. Network Connection." 
+		else
+	                NOOK=$( echo "$STATUS_TEXT" | jq '.[].status' -r | grep -v "^ok$"  | wc -l )
+	                if [ $NOOK -gt 0 ]
+	                then
+	                        NAGIOS_EXIT=$NAGIOS_ERROR
+	                        NAGIOS_STATUS="ERROR: $STATUS_TEXT" 
+	                else
+	                        NAGIOS_EXIT=$NAGIOS_OK
+	                        NAGIOS_STATUS="OK: $STATUS_TEXT" 
+	                fi
+		fi
+                ;;
+        "-l")
+                STATUS_TEXT=$( curl -s $SERVER/-/liveness )
+                STATUS_VALUE=$?
+
+                if [ $STATUS_VALUE != 0 ]
+                then
+                        NAGIOS_EXIT=$NAGIOS_UNKNOWN
+                        NAGIOS_STATUS="Error. Network Connection." 
+		else
+	                NOOK=$( echo "$STATUS_TEXT" | jq '.[].status' -r | grep -v "^ok$"  | wc -l )
+	                if [ $NOOK -gt 0 ]
+	                then
+	                        NAGIOS_EXIT=$NAGIOS_ERROR
+	                        NAGIOS_STATUS="ERROR: $STATUS_TEXT" 
+	                else
+	                        NAGIOS_EXIT=$NAGIOS_OK
+	                        NAGIOS_STATUS="OK: $STATUS_TEXT" 
+	                fi
+		fi
+
+                ;;
+        *)
+                help
+                NAGIOS_EXIT=$NAGIOS_UNKNOWN
+                NAGIOS_STATUS="HELP Needed" 
+                ;;
+        esac
+
+fi
+
+# -------------------
+# echo Status & Quit
+# -------------------
+
+echo "$NAGIOS_STATUS" 
+exit $NAGIOS_EXIT
